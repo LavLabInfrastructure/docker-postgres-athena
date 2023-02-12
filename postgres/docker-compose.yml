@@ -1,0 +1,62 @@
+version: '3.7'
+
+networks:
+  backend:
+  frontend:
+
+services:
+  postgres:
+    image: postgres:${PG_VERSION:-12.2-alpine}
+    healthcheck: 
+      test: ["CMD", "pg_isready"]
+    restart: unless-stopped
+
+    volumes:
+      - ${LOG_DIR:-./instance/logs}/postgres/:/log/
+      - ${PG_DATA_DIR:-./instance}/postgres/:/postgres
+      - ${PG_CONF_DIR:-./configs/postgres-conf}/postgres/pg.conf:/etc/postgresql/postgresql.conf:ro
+
+    environment:
+      - PGDATA=/postgres/data/
+      - POSTGRES_INITDB_WALDIR=/postgres/wal/
+      
+      - POSTGRES_DB=${POSTGRES_DB:-root}
+      - POSTGRES_USER=${POSTGRES_USER:-root}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+
+    networks:
+      - backend
+
+  pgadmin:
+    image: dpage/pgadmin4:${PGADMIN_VERSION:-6.20}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--tries", "1", "--spider", "http://localhost:80/login?next=%2F"]
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD:-root}
+    networks:
+      - backend
+      - frontend
+
+  nginx:
+    build: 
+      context: ${NGINX_DOCKERFILE:-https://github.com/LavLabInfrastructure/nginxLLAB.git}
+      args:
+        - NGINX_VERSION=${NGINX_VERSION:-1.19-alpine-perl}
+
+    depends_on:
+      pgadmin:
+        condition: service_healthy
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    networks:
+      - frontend
+
+    volumes:
+      - ${CERT_DIR:-./certs}/postgres:/etc/ssl/postgres:ro
+      - ${LOG_DIR:-./instance/logs}/nginx/:/var/log/nginx/
+      - ${DPA_CONF_DIR:-./configs/postgres-conf}/nginx:/etc/nginx/conf.d/postgres"
